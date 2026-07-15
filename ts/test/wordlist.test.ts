@@ -214,11 +214,13 @@ describe('CachedWordList', () => {
     expect(calls).toBe(2);
   });
 
-  it('matches a prefix case insensitively, preserving original casing', async () => {
+  it('matches a prefix case insensitively, preserving casing, sorted by lowercase', async () => {
+    // Sorted by lowercased form: 'adiestrar' (adie) < 'Adios' (adio), which
+    // also shows the ordering is case-insensitive (not ASCII, where 'A' < 'a').
     const inner = new CountingWordList(['Adios', 'adiestrar', 'hola']);
     const wl = new CachedWordList(inner);
 
-    expect(await wl.matches('ADI')).toEqual(['Adios', 'adiestrar']);
+    expect(await wl.matches('ADI')).toEqual(['adiestrar', 'Adios']);
   });
 
   it('returns an empty array when nothing matches the prefix', async () => {
@@ -226,6 +228,14 @@ describe('CachedWordList', () => {
     const wl = new CachedWordList(inner);
 
     expect(await wl.matches('xyz')).toEqual([]);
+  });
+
+  it('collects exactly the contiguous run for a prefix in the middle', async () => {
+    const inner = new CountingWordList(['aa', 'ac', 'abc', 'ab', 'aba', 'b']);
+    const wl = new CachedWordList(inner);
+
+    // sorted: aa, ab, aba, abc, ac, b -> prefix "ab" is the run [ab, aba, abc]
+    expect(await wl.matches('ab')).toEqual(['ab', 'aba', 'abc']);
   });
 
   it('builds the index once across repeated matches calls', async () => {

@@ -2,9 +2,14 @@ import request from 'supertest';
 import { describe, it, expect } from 'vitest';
 
 import { createServer } from '../src/server.js';
-import { CachedWordList, containsWord, type WordList } from '../src/wordlist.js';
+import {
+  CachedWordList,
+  containsWord,
+  type WordList,
+  type WordMatcher,
+} from '../src/wordlist.js';
 
-class FakeWordList implements WordList {
+class FakeWordList implements WordList, WordMatcher {
   readonly added: string[] = [];
 
   constructor(
@@ -22,6 +27,17 @@ class FakeWordList implements WordList {
 
   async has(word: string): Promise<boolean> {
     return containsWord(await this.getWords(), word);
+  }
+
+  async matches(prefix: string): Promise<string[]> {
+    const target = prefix.toLowerCase();
+    return (await this.getWords())
+      .filter((w) => w.toLowerCase().startsWith(target))
+      .sort((a, b) => {
+        const al = a.toLowerCase();
+        const bl = b.toLowerCase();
+        return al < bl ? -1 : al > bl ? 1 : 0;
+      });
   }
 
   async addWord(word: string): Promise<boolean> {
@@ -195,7 +211,7 @@ describe('GET /matches/:prefix', () => {
     const res = await request(app).get('/matches/ADI');
 
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ matches: ['Adios', 'adiestrar'] });
+    expect(res.body).toEqual({ matches: ['adiestrar', 'Adios'] });
   });
 
   it('returns an empty array when nothing matches', async () => {
@@ -206,17 +222,6 @@ describe('GET /matches/:prefix', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ matches: [] });
-  });
-
-  it('falls back to a naive scan for a plain WordList', async () => {
-    // FakeWordList does not implement WordMatcher, exercising the fallback path.
-    const wl = new FakeWordList(['Adios', 'adiestrar', 'hola']);
-    const app = createServer(wl);
-
-    const res = await request(app).get('/matches/adi');
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ matches: ['Adios', 'adiestrar'] });
   });
 
   it('returns 500 when reading the word list fails', async () => {

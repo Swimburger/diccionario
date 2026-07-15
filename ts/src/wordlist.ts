@@ -13,17 +13,16 @@ export interface WordList {
   addWord(word: string): Promise<boolean>;
 }
 
-// Optional capability for word lists that can perform prefix matching more
-// efficiently than a naive scan.
+// Capability for word lists that can perform prefix matching.
 export interface WordMatcher {
   // Returns the words that start with the given prefix (case insensitive),
-  // preserving each word's original casing.
+  // preserving each word's original casing. Results are ordered
+  // lexicographically by their lowercased form.
   matches(prefix: string): Promise<string[]>;
 }
 
-export function isWordMatcher(w: WordList): w is WordList & WordMatcher {
-  return typeof (w as Partial<WordMatcher>).matches === 'function';
-}
+// A word list that also supports prefix matching.
+export type SearchableWordList = WordList & WordMatcher;
 
 // Case-insensitive exact-match lookup over a list of words.
 export function containsWord(words: string[], word: string): boolean {
@@ -71,11 +70,15 @@ export class CachedWordList implements WordList, WordMatcher {
     const target = prefix.toLowerCase();
     const index = await this.getIndex();
 
+    // The index is sorted by `lower`, so all words with the given prefix form a
+    // contiguous run starting at the prefix's lower bound. Walk it until a word
+    // no longer starts with the prefix. O(log n + k) instead of a full scan.
     const result: string[] = [];
-    for (const entry of index) {
-      if (entry.lower.startsWith(target)) {
-        result.push(entry.original);
+    for (let i = lowerBound(index, target); i < index.length; i++) {
+      if (!index[i].lower.startsWith(target)) {
+        break;
       }
+      result.push(index[i].original);
     }
     return result;
   }
@@ -91,11 +94,33 @@ export class CachedWordList implements WordList, WordMatcher {
 
   private async getIndex(): Promise<IndexedWord[]> {
     if (this.index === null) {
-      const words = await this.getWords();
-      this.index = words.map((original) => ({ original, lower: original.toLowerCase() }));
+      const index = (await this.getWords()).map((original) => ({
+        original,
+        lower: original.toLowerCase(),
+      }));
+      // Sort using the same order the binary search relies on (default string
+      // comparison on the lowercased form, not locale-aware).
+      index.sort((a, b) => (a.lower < b.lower ? -1 : a.lower > b.lower ? 1 : 0));
+      this.index = index;
     }
     return this.index;
   }
+}
+
+// Index of the first entry whose lowercased word is >= target, over an index
+// sorted by `lower`.
+function lowerBound(index: IndexedWord[], target: string): number {
+  let lo = 0;
+  let hi = index.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (index[mid].lower < target) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
 }
 
 export class FileWordList implements WordList {

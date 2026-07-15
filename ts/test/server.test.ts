@@ -2,7 +2,7 @@ import request from 'supertest';
 import { describe, it, expect } from 'vitest';
 
 import { createServer } from '../src/server.js';
-import { containsWord, type WordList } from '../src/wordlist.js';
+import { CachedWordList, containsWord, type WordList } from '../src/wordlist.js';
 
 class FakeWordList implements WordList {
   readonly added: string[] = [];
@@ -182,6 +182,48 @@ describe('POST /add', () => {
     const app = createServer(wl);
 
     const res = await request(app).post('/add').send({ word: 'adios' });
+
+    expect(res.status).toBe(500);
+  });
+});
+
+describe('GET /matches/:prefix', () => {
+  it('returns prefix matches case insensitively, preserving casing', async () => {
+    const wl = new CachedWordList(new FakeWordList(['Adios', 'adiestrar', 'hola']));
+    const app = createServer(wl);
+
+    const res = await request(app).get('/matches/ADI');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ matches: ['Adios', 'adiestrar'] });
+  });
+
+  it('returns an empty array when nothing matches', async () => {
+    const wl = new CachedWordList(new FakeWordList(['hola', 'adios']));
+    const app = createServer(wl);
+
+    const res = await request(app).get('/matches/xyz');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ matches: [] });
+  });
+
+  it('falls back to a naive scan for a plain WordList', async () => {
+    // FakeWordList does not implement WordMatcher, exercising the fallback path.
+    const wl = new FakeWordList(['Adios', 'adiestrar', 'hola']);
+    const app = createServer(wl);
+
+    const res = await request(app).get('/matches/adi');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ matches: ['Adios', 'adiestrar'] });
+  });
+
+  it('returns 500 when reading the word list fails', async () => {
+    const wl = new FakeWordList([], new Error('boom'));
+    const app = createServer(wl);
+
+    const res = await request(app).get('/matches/adi');
 
     expect(res.status).toBe(500);
   });

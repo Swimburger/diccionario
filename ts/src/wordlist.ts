@@ -13,6 +13,18 @@ export interface WordList {
   addWord(word: string): Promise<boolean>;
 }
 
+// Optional capability for word lists that can perform prefix matching more
+// efficiently than a naive scan.
+export interface WordMatcher {
+  // Returns the words that start with the given prefix (case insensitive),
+  // preserving each word's original casing.
+  matches(prefix: string): Promise<string[]>;
+}
+
+export function isWordMatcher(w: WordList): w is WordList & WordMatcher {
+  return typeof (w as Partial<WordMatcher>).matches === 'function';
+}
+
 // Case-insensitive exact-match lookup over a list of words.
 export function containsWord(words: string[], word: string): boolean {
   const target = word.toLowerCase();
@@ -25,11 +37,20 @@ export function isValidWord(word: string): boolean {
   return /^\p{L}+$/u.test(word);
 }
 
+// A word paired with its lowercased form, so prefix matching does not have to
+// re-lowercase the word on every request.
+interface IndexedWord {
+  lower: string;
+  original: string;
+}
+
 // Wraps a WordList and caches the full word list in memory so repeated reads
-// do not hit the underlying store on every call. The cache is invalidated when
-// a new word is successfully added.
-export class CachedWordList implements WordList {
+// do not hit the underlying store on every call. Also maintains a lowercased
+// index for efficient case-insensitive prefix matching. Both caches are
+// invalidated when a new word is successfully added.
+export class CachedWordList implements WordList, WordMatcher {
   private cache: string[] | null = null;
+  private index: IndexedWord[] | null = null;
 
   constructor(private readonly inner: WordList) {}
 
@@ -46,12 +67,34 @@ export class CachedWordList implements WordList {
     return containsWord(await this.getWords(), word);
   }
 
+  async matches(prefix: string): Promise<string[]> {
+    const target = prefix.toLowerCase();
+    const index = await this.getIndex();
+
+    const result: string[] = [];
+    for (const entry of index) {
+      if (entry.lower.startsWith(target)) {
+        result.push(entry.original);
+      }
+    }
+    return result;
+  }
+
   async addWord(word: string): Promise<boolean> {
     const added = await this.inner.addWord(word);
     if (added) {
       this.cache = null;
+      this.index = null;
     }
     return added;
+  }
+
+  private async getIndex(): Promise<IndexedWord[]> {
+    if (this.index === null) {
+      const words = await this.getWords();
+      this.index = words.map((original) => ({ original, lower: original.toLowerCase() }));
+    }
+    return this.index;
   }
 }
 

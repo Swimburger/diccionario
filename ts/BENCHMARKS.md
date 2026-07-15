@@ -52,3 +52,23 @@ successful add. Addresses root cause #1.
 The latency floor drops from ~8 ms to ~2 ms. The remaining per-request cost is
 now dominated by re-lowercasing every word during the scan (#2) plus result
 serialization for large result sets — addressed in later steps.
+
+## Step 2 — lowercased index (CachedWordList.matches)
+
+Move prefix matching into `CachedWordList` (via a `WordMatcher` capability),
+backed by a lowercased index built once and invalidated on add. Requests no
+longer re-lowercase ~100k words each. `FileWordList` is unchanged; the endpoint
+uses the matcher when available and falls back to a naive scan otherwise.
+Addresses root cause #2.
+
+| Prefix | Matches | Step 1 mean | Step 2 mean | vs baseline |
+| ------ | ------: | ----------: | ----------: | ----------: |
+| `a`    | ~17,000 | 4.02 ms     | 1.84 ms     | 5.2x        |
+| `pre`  | ~3,000  | 2.27 ms     | 0.65 ms     | 12.3x       |
+| `zyth` | few     | 2.31 ms     | 0.81 ms     | 9.7x        |
+| `qzx`  | 0       | 1.99 ms     | 0.96 ms     | 8.4x        |
+
+Most prefixes are now sub-millisecond. The `a` case (~1.84 ms) is dominated by
+building and serializing the ~17k-element result array rather than the scan.
+The scan remains O(n) but allocation-free; exploiting sort order (binary
+search, #3) is the next step to make selective/non-matching queries near-free.

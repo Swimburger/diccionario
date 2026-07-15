@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { CachedWordList, FileWordList, isValidWord, WordList } from './wordlist.js';
+import { CachedWordList, FileWordList, isValidWord, isWordMatcher, WordList } from './wordlist.js';
 
 export interface ExistsResponse {
   exists: boolean;
@@ -50,26 +50,29 @@ export class Server {
   // Returns a list of words that matched the given prefix.
   // It performs case insensitive matching to the words in the wordlist.
   private async matches(req: Request, res: Response): Promise<void> {
-    const prefix = req.params.prefix.toLowerCase();
-
-    let wordlist: string[];
+    let matches: string[];
     try {
-      wordlist = await this.w.getWords();
+      matches = await this.matchPrefix(req.params.prefix);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'unknown error';
-      res.status(400).send(msg);
+      res.status(500).send(msg);
       return;
     }
 
-    const resp: MatchesResponse = { matches: [] };
+    const resp: MatchesResponse = { matches };
+    res.status(200).json(resp);
+  }
 
-    for (const w of wordlist) {
-      if (w.toLowerCase().startsWith(prefix)) {
-        resp.matches.push(w);
-      }
+  // Uses the word list's optimized prefix matching when available, otherwise
+  // falls back to a naive case-insensitive scan.
+  private async matchPrefix(prefix: string): Promise<string[]> {
+    if (isWordMatcher(this.w)) {
+      return this.w.matches(prefix);
     }
 
-    res.status(200).json(resp);
+    const target = prefix.toLowerCase();
+    const wordlist = await this.w.getWords();
+    return wordlist.filter((w) => w.toLowerCase().startsWith(target));
   }
 
   // Add a new word to the word list.

@@ -213,4 +213,37 @@ describe('CachedWordList', () => {
     expect(await wl.getWords()).toEqual(['hola']);
     expect(calls).toBe(2);
   });
+
+  it('matches a prefix case insensitively, preserving original casing', async () => {
+    const inner = new CountingWordList(['Adios', 'adiestrar', 'hola']);
+    const wl = new CachedWordList(inner);
+
+    expect(await wl.matches('ADI')).toEqual(['Adios', 'adiestrar']);
+  });
+
+  it('returns an empty array when nothing matches the prefix', async () => {
+    const inner = new CountingWordList(['hola', 'adios']);
+    const wl = new CachedWordList(inner);
+
+    expect(await wl.matches('xyz')).toEqual([]);
+  });
+
+  it('builds the index once across repeated matches calls', async () => {
+    const inner = new CountingWordList(['hola', 'adios']);
+    const wl = new CachedWordList(inner);
+
+    await wl.matches('h');
+    await wl.matches('a');
+
+    expect(inner.getWordsCalls).toBe(1);
+  });
+
+  it('reflects a newly added word in subsequent matches', async () => {
+    const inner = new CountingWordList(['hola']);
+    const wl = new CachedWordList(inner);
+
+    expect(await wl.matches('ad')).toEqual([]);
+    await wl.addWord('adios');
+    expect(await wl.matches('ad')).toEqual(['adios']);
+  });
 });

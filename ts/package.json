@@ -7,7 +7,8 @@
     "build": "tsc",
     "start": "node dist/main.js",
     "dev": "nodemon --watch src --ext ts,js --exec \"node --loader ts-node/esm src/main.ts\"",
-    "test": "vitest"
+    "test": "vitest",
+    "bench": "vitest bench --run"
   },
   "dependencies": {
     "express": "^4.19.2"

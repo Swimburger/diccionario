@@ -34,21 +34,21 @@ export class Server {
   // Returns true if the word exists in the word list.
   // It performs case insensitive matching to the words in the wordlist.
   private async wordExists(req: Request, res: Response): Promise<void> {
-    const word = req.params.word;
+    const word = req.params.word.toLowerCase();
 
     let wordlist: string[];
     try {
       wordlist = await this.w.getWords();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'unknown error';
-      res.status(400).send(msg);
+      res.status(500).send(msg);
       return;
     }
 
     const resp: ExistsResponse = { exists: false };
 
     for (const w of wordlist) {
-      if (w.startsWith(word)) {
+      if (w.toLowerCase() === word) {
         resp.exists = true;
       }
     }

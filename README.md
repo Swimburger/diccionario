@@ -15,7 +15,6 @@ The word list is stored in a flat file at [words.txt](./words.txt).
 ## /exists/:word
 
 This endpoint checks if a word exists in the word list.
-This endpoint has some issues with it's implementation.
 
 Expected functionality:
 * It returns a 200 upon success
@@ -23,12 +22,11 @@ Expected functionality:
 * The response body is a JSON object with a single field `exists` of type boolean
   * Example: `{ "exists": true }`
 * It performs case insensitive matching to the words in the wordlist
-* It only returns true if the word exists (exactly matches)in the wordlist
+* It only returns true if the word exists (exactly matches) in the wordlist
 
 ## /add
 
 This endpoint adds a new word to the word list.
-This endpoint needs to be implemented still.
 
 Expected functionality:
 * It returns a 204 upon success.
@@ -40,7 +38,6 @@ Expected functionality:
 ## /matches/:prefix
 
 This endpoint returns a list of words that match a given prefix.
-This endpoint needs to be more performant.
 
 Expected functionality:
 * It returns a 200 upon success
@@ -98,3 +95,35 @@ docker exec -it `docker ps | grep diccionario | awk '{print $1}'` bash
 ```
 
 To exit the terminal session, press Ctrl+D in the terminal where it's running.
+
+## Status
+
+All three endpoints are implemented and covered by tests:
+
+* `/exists/:word` — case-insensitive exact match via an O(1) lookup.
+* `/add` — validates input, rejects duplicates with a 409, and persists the
+  word to `words.txt`.
+* `/matches/:prefix` — case-insensitive prefix match; results are returned
+  sorted. Backed by an in-memory cache, a pre-normalized index, and binary
+  search over the sorted list.
+
+Matching and validation are Unicode-normalized (NFC), so accented words compare
+consistently regardless of how the request encodes them.
+
+## Development
+
+The word list is loaded once and cached in memory. The `WordList` interface
+(`src/wordlist.ts`) is composed via decorators: `CachedWordList` wraps
+`FileWordList` to add caching and the search index.
+
+Inside the `ts` directory (or the running container):
+
+```sh
+npm install     # install dependencies
+npm test        # run the unit tests (vitest)
+npm run bench   # run the performance benchmarks
+npm run build   # type-check and compile to dist/
+```
+
+See [ts/ISSUES.md](./ts/ISSUES.md) for known encoding edge cases and
+[ts/BENCHMARKS.md](./ts/BENCHMARKS.md) for performance results.

@@ -1,5 +1,8 @@
 # Known issues
 
+All actionable bugs below are fixed. The remaining items are either intentional
+non-fixes or optional enhancements (not bugs).
+
 ## /exists, /add, /matches — language & encoding edge cases
 
 ### Fixed
@@ -35,3 +38,15 @@
 6. **Homoglyphs / confusables** (e.g. Cyrillic `а` U+0430 vs Latin `a` U+0061) —
    inherent to Unicode text; distinct code points are genuinely different words.
    Not fixable without a confusables-mapping policy, which we do not want.
+
+## Possible future enhancements (not bugs)
+
+Deliberately left out; noted for future reference.
+
+- **Result limit / pagination for `/matches`** — a broad prefix like `a` returns
+  ~17k words; the only remaining `/matches` cost is building that array. A limit
+  would cap it, but it changes the API contract, so it is out of scope for now.
+- **Incremental index/set maintenance on `/add`** — `CachedWordList` currently
+  invalidates and rebuilds its cache/index/set on a successful add. Inserting
+  into the existing structures would avoid the rebuild, but adds are rare so the
+  gain is marginal.

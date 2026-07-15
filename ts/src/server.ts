@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { FileWordList, WordList } from './wordlist.js';
+import { FileWordList, isValidWord, WordList } from './wordlist.js';
 
 export interface ExistsResponse {
   exists: boolean;
@@ -34,25 +34,16 @@ export class Server {
   // Returns true if the word exists in the word list.
   // It performs case insensitive matching to the words in the wordlist.
   private async wordExists(req: Request, res: Response): Promise<void> {
-    const word = req.params.word.toLowerCase();
-
-    let wordlist: string[];
+    let exists: boolean;
     try {
-      wordlist = await this.w.getWords();
+      exists = await this.w.has(req.params.word);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'unknown error';
       res.status(500).send(msg);
       return;
     }
 
-    const resp: ExistsResponse = { exists: false };
-
-    for (const w of wordlist) {
-      if (w.toLowerCase() === word) {
-        resp.exists = true;
-      }
-    }
-
+    const resp: ExistsResponse = { exists };
     res.status(200).json(resp);
   }
 
@@ -82,6 +73,8 @@ export class Server {
   }
 
   // Add a new word to the word list.
+  // A word is a single string of unbroken alpha characters.
+  // Returns 204 on success, 409 if the word already exists (case insensitive).
   private async add(req: Request, res: Response): Promise<void> {
     let body: AddRequest;
     try {
@@ -95,7 +88,26 @@ export class Server {
       return;
     }
 
-    // implement your logic here
+    if (!isValidWord(body.word)) {
+      res.status(400).send('word must contain only alphabetic characters');
+      return;
+    }
+
+    let added: boolean;
+    try {
+      added = await this.w.addWord(body.word);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'unknown error';
+      res.status(500).send(msg);
+      return;
+    }
+
+    if (!added) {
+      res.status(409).send('word already exists');
+      return;
+    }
+
+    res.status(204).end();
   }
 }
 

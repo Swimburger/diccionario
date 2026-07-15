@@ -2,20 +2,37 @@ import request from 'supertest';
 import { describe, it, expect } from 'vitest';
 
 import { createServer } from '../src/server.js';
-import type { WordList } from '../src/wordlist.js';
+import { containsWord, type WordList } from '../src/wordlist.js';
 
 class FakeWordList implements WordList {
-  constructor(private readonly words: string[], private readonly err: Error | null = null) {}
+  readonly added: string[] = [];
 
-  async addWord(_word: string): Promise<void> {
-    // no-op for tests
-  }
+  constructor(
+    private readonly words: string[],
+    private readonly err: Error | null = null,
+    private readonly addErr: Error | null = null,
+  ) {}
 
   async getWords(): Promise<string[]> {
     if (this.err) {
       throw this.err;
     }
     return this.words;
+  }
+
+  async has(word: string): Promise<boolean> {
+    return containsWord(await this.getWords(), word);
+  }
+
+  async addWord(word: string): Promise<boolean> {
+    if (await this.has(word)) {
+      return false;
+    }
+    if (this.addErr) {
+      throw this.addErr;
+    }
+    this.added.push(word);
+    return true;
   }
 }
 
@@ -75,6 +92,96 @@ describe('GET /exists/:word', () => {
     const app = createServer(wl);
 
     const res = await request(app).get('/exists/hola');
+
+    expect(res.status).toBe(500);
+  });
+});
+
+describe('POST /add', () => {
+  it('adds a new word and returns 204', async () => {
+    const wl = new FakeWordList(['hola']);
+    const app = createServer(wl);
+
+    const res = await request(app).post('/add').send({ word: 'adios' });
+
+    expect(res.status).toBe(204);
+    expect(wl.added).toEqual(['adios']);
+  });
+
+  it('returns 409 when the word already exists', async () => {
+    const wl = new FakeWordList(['hola', 'adios']);
+    const app = createServer(wl);
+
+    const res = await request(app).post('/add').send({ word: 'hola' });
+
+    expect(res.status).toBe(409);
+    expect(wl.added).toEqual([]);
+  });
+
+  it('treats an existing word case insensitively as a duplicate', async () => {
+    const wl = new FakeWordList(['hola']);
+    const app = createServer(wl);
+
+    const res = await request(app).post('/add').send({ word: 'HoLa' });
+
+    expect(res.status).toBe(409);
+    expect(wl.added).toEqual([]);
+  });
+
+  it('rejects a word containing numbers', async () => {
+    const wl = new FakeWordList([]);
+    const app = createServer(wl);
+
+    const res = await request(app).post('/add').send({ word: 'hol4' });
+
+    expect(res.status).toBe(400);
+    expect(wl.added).toEqual([]);
+  });
+
+  it('rejects a word containing special characters', async () => {
+    const wl = new FakeWordList([]);
+    const app = createServer(wl);
+
+    const res = await request(app).post('/add').send({ word: 'ho la' });
+
+    expect(res.status).toBe(400);
+    expect(wl.added).toEqual([]);
+  });
+
+  it('rejects an empty word', async () => {
+    const wl = new FakeWordList([]);
+    const app = createServer(wl);
+
+    const res = await request(app).post('/add').send({ word: '' });
+
+    expect(res.status).toBe(400);
+    expect(wl.added).toEqual([]);
+  });
+
+  it('rejects a body missing the word field', async () => {
+    const wl = new FakeWordList([]);
+    const app = createServer(wl);
+
+    const res = await request(app).post('/add').send({});
+
+    expect(res.status).toBe(400);
+    expect(wl.added).toEqual([]);
+  });
+
+  it('returns 500 when reading the word list fails', async () => {
+    const wl = new FakeWordList([], new Error('boom'));
+    const app = createServer(wl);
+
+    const res = await request(app).post('/add').send({ word: 'adios' });
+
+    expect(res.status).toBe(500);
+  });
+
+  it('returns 500 when persisting the word fails', async () => {
+    const wl = new FakeWordList([], null, new Error('disk full'));
+    const app = createServer(wl);
+
+    const res = await request(app).post('/add').send({ word: 'adios' });
 
     expect(res.status).toBe(500);
   });

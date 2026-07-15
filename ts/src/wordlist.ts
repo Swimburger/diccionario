@@ -59,6 +59,7 @@ interface IndexedWord {
 export class CachedWordList implements WordList, WordMatcher {
   private cache: string[] | null = null;
   private index: IndexedWord[] | null = null;
+  private set: Set<string> | null = null;
 
   constructor(private readonly inner: WordList) {}
 
@@ -72,7 +73,8 @@ export class CachedWordList implements WordList, WordMatcher {
   }
 
   async has(word: string): Promise<boolean> {
-    return containsWord(await this.getWords(), word);
+    // O(1) exact lookup against a folded set, instead of scanning every word.
+    return (await this.getSet()).has(foldWord(word));
   }
 
   async matches(prefix: string): Promise<string[]> {
@@ -97,8 +99,16 @@ export class CachedWordList implements WordList, WordMatcher {
     if (added) {
       this.cache = null;
       this.index = null;
+      this.set = null;
     }
     return added;
+  }
+
+  private async getSet(): Promise<Set<string>> {
+    if (this.set === null) {
+      this.set = new Set((await this.getWords()).map(foldWord));
+    }
+    return this.set;
   }
 
   private async getIndex(): Promise<IndexedWord[]> {

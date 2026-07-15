@@ -221,6 +221,22 @@ describe('CachedWordList', () => {
     expect(inner.getWordsCalls).toBe(1);
   });
 
+  it('has reflects a newly added word after invalidation', async () => {
+    const inner = new CountingWordList(['hola']);
+    const wl = new CachedWordList(inner);
+
+    expect(await wl.has('adios')).toBe(false);
+    await wl.addWord('adios');
+    expect(await wl.has('adios')).toBe(true);
+  });
+
+  it('has matches across NFC/NFD normalization forms', async () => {
+    const inner = new CountingWordList(['ni\u00F1o']); // precomposed U+00F1
+    const wl = new CachedWordList(inner);
+
+    expect(await wl.has('nin\u0303o')).toBe(true); // decomposed query
+  });
+
   it('invalidates the cache after a successful add', async () => {
     const inner = new CountingWordList(['hola']);
     const wl = new CachedWordList(inner);

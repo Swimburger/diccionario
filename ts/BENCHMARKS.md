@@ -6,8 +6,16 @@ Run with:
 npm run bench
 ```
 
-The benchmark (`test/matches.bench.ts`) exercises the `GET /matches/:prefix`
-endpoint via supertest against the real word list (`words.txt`, ~235,976 lines).
+The benchmark (`test/wordlist.bench.ts`) exercises `CachedWordList` directly
+(no HTTP) against the real word list (`words.txt`, ~235,976 lines).
+
+> Note on methodology: the baseline through Step 3 tables below were measured
+> end-to-end through the HTTP endpoint via supertest. Once the queries got fast,
+> the HTTP round-trip dominated the measurement and supertest became flaky
+> (intermittent ECONNRESET). From Step 4 on, the benchmark measures the
+> `WordList` layer directly, so those numbers are much smaller and are not
+> directly comparable to the earlier end-to-end figures. The historical tables
+> are kept to show the progression.
 
 ## GET /matches/:prefix — baseline (before optimization)
 
@@ -72,3 +80,34 @@ Most prefixes are now sub-millisecond. The `a` case (~1.84 ms) is dominated by
 building and serializing the ~17k-element result array rather than the scan.
 The scan remains O(n) but allocation-free; exploiting sort order (binary
 search, #3) is the next step to make selective/non-matching queries near-free.
+
+## Step 3 + 4 — binary search and O(1) `has` (WordList layer)
+
+Measured at the `WordList` layer (no HTTP; see the methodology note above), so
+these are not comparable to the end-to-end tables above. Recorded 2026-07-15,
+Node 24, vitest 2.1.9.
+
+Step 3 sorts the index once and binary-searches the prefix range (O(log n + k)).
+Step 4 gives `has()` an O(1) folded `Set` for exact lookups, replacing the
+former O(n) scan on the `/exists` path.
+
+`CachedWordList.has` (`/exists`):
+
+| Case          | Throughput   | Mean latency |
+| ------------- | -----------: | -----------: |
+| existing word | 6.9M ops/s   | ~0.0001 ms   |
+| missing word  | 7.4M ops/s   | ~0.0001 ms   |
+
+`CachedWordList.matches` (`/matches`):
+
+| Prefix | Matches | Throughput  | Mean latency |
+| ------ | ------: | ----------: | -----------: |
+| `a`    | ~17,000 | 13.6K ops/s | 0.074 ms     |
+| `pre`  | ~3,000  | 51.4K ops/s | 0.020 ms     |
+| `zyth` | few     | 4.4M ops/s  | ~0.0002 ms   |
+| `qzx`  | 0       | 5.2M ops/s  | ~0.0002 ms   |
+
+`has` is now constant-time. Selective and non-matching prefixes are near-instant
+via binary search; the only remaining cost is proportional to the result-set
+size (`a`, `pre`), i.e. building the result array — bounded further only by an
+optional result limit/pagination, which would change the API contract.

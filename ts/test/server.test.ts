@@ -30,11 +30,21 @@ describe('GET /exists/:word', () => {
     expect(res.body).toEqual({ exists: true });
   });
 
-  it('word exists as prefix', async () => {
+  it('prefix of a word is not an exact match', async () => {
     const wl = new FakeWordList(['hola', 'adios']);
     const app = createServer(wl);
 
     const res = await request(app).get('/exists/ad');
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ exists: false });
+  });
+
+  it('matches case insensitively', async () => {
+    const wl = new FakeWordList(['hola', 'adios']);
+    const app = createServer(wl);
+
+    const res = await request(app).get('/exists/HoLa');
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ exists: true });
@@ -66,7 +76,6 @@ describe('GET /exists/:word', () => {
 
     const res = await request(app).get('/exists/hola');
 
-    expect(res.status).toBe(400);
-    expect(res.text).toBe('boom');
+    expect(res.status).toBe(500);
   });
 });

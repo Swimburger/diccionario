@@ -56,6 +56,15 @@ describe('containsWord', () => {
   it('returns false for an empty list', () => {
     expect(containsWord([], 'hola')).toBe(false);
   });
+
+  it('matches across NFC and NFD normalization forms', () => {
+    const nfc = 'ni\u00F1o'; // "niño" precomposed (U+00F1)
+    const nfd = 'nin\u0303o'; // "niño" decomposed (n + U+0303)
+    expect(nfc).not.toBe(nfd); // guard: the two forms really differ
+
+    expect(containsWord([nfc], nfd)).toBe(true);
+    expect(containsWord([nfd], nfc)).toBe(true);
+  });
 });
 
 describe('isValidWord', () => {
@@ -65,6 +74,12 @@ describe('isValidWord', () => {
 
   it('accepts accented letters', () => {
     expect(isValidWord('niño')).toBe(true);
+  });
+
+  it('accepts a decomposed (NFD) accented word', () => {
+    // "niño" is n + combining tilde (U+0303); without NFC normalization the
+    // combining mark is \p{M}, not \p{L}, and would be rejected.
+    expect(isValidWord('nin\u0303o')).toBe(true);
   });
 
   it('rejects an empty string', () => {
@@ -111,6 +126,43 @@ describe('FileWordList', () => {
     const wl = new FileWordList(path.join(dir, 'missing.txt'));
 
     await expect(wl.getWords()).rejects.toThrow();
+  });
+
+  it('getWords handles CRLF line endings without leaving a trailing \\r', async () => {
+    await fs.writeFile(file, 'hola\r\nadios\r\n', 'utf8');
+    const wl = new FileWordList(file);
+
+    expect(await wl.getWords()).toEqual(['hola', 'adios']);
+  });
+
+  it('getWords strips a leading UTF-8 BOM', async () => {
+    await fs.writeFile(file, '\uFEFFhola\nadios\n', 'utf8');
+    const wl = new FileWordList(file);
+
+    const words = await wl.getWords();
+    expect(words[0]).toBe('hola');
+    expect(await wl.has('hola')).toBe(true);
+  });
+
+  it('getWords ignores blank lines and the trailing newline', async () => {
+    await fs.writeFile(file, 'hola\n\nadios\n', 'utf8');
+    const wl = new FileWordList(file);
+
+    expect(await wl.getWords()).toEqual(['hola', 'adios']);
+  });
+
+  it('getWords reads words past the former 100k-line truncation', async () => {
+    const lines: string[] = [];
+    for (let i = 0; i <= 100_000; i++) {
+      lines.push(`w${i}`);
+    }
+    await fs.writeFile(file, `${lines.join('\n')}\n`, 'utf8');
+    const wl = new FileWordList(file);
+
+    const words = await wl.getWords();
+    expect(words.length).toBe(100_001);
+    expect(words[words.length - 1]).toBe('w100000');
+    expect(await wl.has('w100000')).toBe(true);
   });
 
   it('has finds an existing word case insensitively', async () => {
@@ -236,6 +288,15 @@ describe('CachedWordList', () => {
 
     // sorted: aa, ab, aba, abc, ac, b -> prefix "ab" is the run [ab, aba, abc]
     expect(await wl.matches('ab')).toEqual(['ab', 'aba', 'abc']);
+  });
+
+  it('matches a prefix across NFC/NFD normalization forms', async () => {
+    const word = 'ni\u00F1o'; // stored precomposed "niño"
+    const inner = new CountingWordList([word]);
+    const wl = new CachedWordList(inner);
+
+    // decomposed prefix "niñ" (ni + n + combining tilde)
+    expect(await wl.matches('nin\u0303')).toEqual([word]);
   });
 
   it('builds the index once across repeated matches calls', async () => {

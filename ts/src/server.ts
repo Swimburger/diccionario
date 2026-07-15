@@ -79,14 +79,18 @@ export class Server {
       return;
     }
 
-    if (!isValidWord(body.word)) {
+    // Store the canonical NFC form so the file stays consistent and comparisons
+    // do not depend on the request's normalization form.
+    const word = body.word.normalize('NFC');
+
+    if (!isValidWord(word)) {
       res.status(400).send('word must contain only alphabetic characters');
       return;
     }
 
     let added: boolean;
     try {
-      added = await this.w.addWord(body.word);
+      added = await this.w.addWord(word);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'unknown error';
       res.status(500).send(msg);

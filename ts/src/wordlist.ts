@@ -24,16 +24,25 @@ export interface WordMatcher {
 // A word list that also supports prefix matching.
 export type SearchableWordList = WordList & WordMatcher;
 
+// Fold a word for case-insensitive comparison: NFC-normalize its composition
+// (so precomposed and decomposed forms of e.g. "ñ" compare equal), then
+// lowercase.
+export function foldWord(word: string): string {
+  return word.normalize('NFC').toLowerCase();
+}
+
 // Case-insensitive exact-match lookup over a list of words.
 export function containsWord(words: string[], word: string): boolean {
-  const target = word.toLowerCase();
-  return words.some((w) => w.toLowerCase() === target);
+  const target = foldWord(word);
+  return words.some((w) => foldWord(w) === target);
 }
 
 // A valid word is a single, non-empty string of unbroken alphabetic
-// characters (no numbers, whitespace, or special characters).
+// characters (no numbers, whitespace, or special characters). The word is
+// NFC-normalized first so a decomposed accented letter (base letter + combining
+// mark) is treated as the single letter it renders as, not a letter + a mark.
 export function isValidWord(word: string): boolean {
-  return /^\p{L}+$/u.test(word);
+  return /^\p{L}+$/u.test(word.normalize('NFC'));
 }
 
 // A word paired with its lowercased form, so prefix matching does not have to
@@ -67,7 +76,7 @@ export class CachedWordList implements WordList, WordMatcher {
   }
 
   async matches(prefix: string): Promise<string[]> {
-    const target = prefix.toLowerCase();
+    const target = foldWord(prefix);
     const index = await this.getIndex();
 
     // The index is sorted by `lower`, so all words with the given prefix form a
@@ -96,7 +105,7 @@ export class CachedWordList implements WordList, WordMatcher {
     if (this.index === null) {
       const index = (await this.getWords()).map((original) => ({
         original,
-        lower: original.toLowerCase(),
+        lower: foldWord(original),
       }));
       // Sort using the same order the binary search relies on (default string
       // comparison on the lowercased form, not locale-aware).
@@ -133,7 +142,11 @@ export class FileWordList implements WordList {
   async getWords(): Promise<string[]> {
     const abs = path.resolve(this.filename);
     const data = await fs.readFile(abs, { encoding: 'utf8' });
-    return data.split('\n').slice(0, 100_000);
+    return data
+      .replace(/^\uFEFF/, '') // strip a leading UTF-8 BOM, if present
+      .split(/\r?\n/) // handle both LF and CRLF line endings
+      .map((line) => line.trim()) // drop stray surrounding whitespace (e.g. \r)
+      .filter((line) => line.length > 0); // drop blank lines and trailing newline
   }
 
   async has(word: string): Promise<boolean> {

@@ -25,6 +25,36 @@ export function isValidWord(word: string): boolean {
   return /^\p{L}+$/u.test(word);
 }
 
+// Wraps a WordList and caches the full word list in memory so repeated reads
+// do not hit the underlying store on every call. The cache is invalidated when
+// a new word is successfully added.
+export class CachedWordList implements WordList {
+  private cache: string[] | null = null;
+
+  constructor(private readonly inner: WordList) {}
+
+  async getWords(): Promise<string[]> {
+    if (this.cache === null) {
+      // On failure `cache` stays null (assignment never runs), so the next
+      // call retries the read.
+      this.cache = await this.inner.getWords();
+    }
+    return this.cache;
+  }
+
+  async has(word: string): Promise<boolean> {
+    return containsWord(await this.getWords(), word);
+  }
+
+  async addWord(word: string): Promise<boolean> {
+    const added = await this.inner.addWord(word);
+    if (added) {
+      this.cache = null;
+    }
+    return added;
+  }
+}
+
 export class FileWordList implements WordList {
   private readonly filename: string;
 

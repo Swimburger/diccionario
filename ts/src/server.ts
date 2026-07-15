@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { FileWordList, isValidWord, WordList } from './wordlist.js';
+import { CachedWordList, FileWordList, isValidWord, WordList } from './wordlist.js';
 
 export interface ExistsResponse {
   exists: boolean;
@@ -18,7 +18,7 @@ export class Server {
   private readonly w: WordList;
 
   constructor(wordList?: WordList) {
-    this.w = wordList ?? new FileWordList('/words.txt');
+    this.w = wordList ?? new CachedWordList(new FileWordList('/words.txt'));
 
     this.app.use(express.json());
 

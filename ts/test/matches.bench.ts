@@ -5,14 +5,16 @@ import request from 'supertest';
 import { bench, describe } from 'vitest';
 
 import { createServer } from '../src/server.js';
-import { FileWordList } from '../src/wordlist.js';
+import { CachedWordList, FileWordList } from '../src/wordlist.js';
 
-// Benchmark the /matches/:prefix endpoint against the real ~236k-word list.
+// Benchmark the /matches/:prefix endpoint against the real ~236k-word list,
+// using the same composition (cache wrapping the file-backed list) as the
+// production default in createServer().
 const wordsPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../words.txt',
 );
-const app = createServer(new FileWordList(wordsPath));
+const app = createServer(new CachedWordList(new FileWordList(wordsPath)));
 
 describe('GET /matches/:prefix', () => {
   // Large result set (~17k matches): scan + build + serialize dominate.

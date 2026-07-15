@@ -35,3 +35,20 @@ Root causes (see analysis in the PR/discussion):
 3. An unconditional O(n) linear scan; sort order is not exploited.
 4. `getWords()` truncates to the first 100,000 lines (`.slice(0, 100_000)`),
    which is also a correctness bug for the alphabetical list (z-words dropped).
+
+## Step 1 — in-memory caching (CachedWordList)
+
+Wrap the file-backed list in `CachedWordList` (composition) so the file is
+read and split once, not on every request. Cache is invalidated on a
+successful add. Addresses root cause #1.
+
+| Prefix | Matches | Baseline mean | Step 1 mean | Speedup |
+| ------ | ------: | ------------: | ----------: | ------: |
+| `a`    | ~17,000 | 9.55 ms       | 4.02 ms     | 2.4x    |
+| `pre`  | ~3,000  | 7.99 ms       | 2.27 ms     | 3.5x    |
+| `zyth` | few     | 7.88 ms       | 2.31 ms     | 3.4x    |
+| `qzx`  | 0       | 8.09 ms       | 1.99 ms     | 4.1x    |
+
+The latency floor drops from ~8 ms to ~2 ms. The remaining per-request cost is
+now dominated by re-lowercasing every word during the scan (#2) plus result
+serialization for large result sets — addressed in later steps.

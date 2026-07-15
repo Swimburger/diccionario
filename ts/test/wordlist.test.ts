@@ -4,7 +4,37 @@ import * as path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { FileWordList, containsWord, isValidWord } from '../src/wordlist.js';
+import {
+  CachedWordList,
+  FileWordList,
+  containsWord,
+  isValidWord,
+  type WordList,
+} from '../src/wordlist.js';
+
+// In-memory WordList that counts getWords() calls, for verifying caching.
+class CountingWordList implements WordList {
+  getWordsCalls = 0;
+
+  constructor(private readonly words: string[]) {}
+
+  async getWords(): Promise<string[]> {
+    this.getWordsCalls++;
+    return [...this.words];
+  }
+
+  async has(word: string): Promise<boolean> {
+    return containsWord(this.words, word);
+  }
+
+  async addWord(word: string): Promise<boolean> {
+    if (containsWord(this.words, word)) {
+      return false;
+    }
+    this.words.push(word);
+    return true;
+  }
+}
 
 describe('containsWord', () => {
   it('matches an exact word', () => {
@@ -115,5 +145,72 @@ describe('FileWordList', () => {
 
     expect(await wl.addWord('HOLA')).toBe(false);
     expect(await fs.readFile(file, 'utf8')).toBe('hola\n');
+  });
+});
+
+describe('CachedWordList', () => {
+  it('reads the inner list only once across repeated calls', async () => {
+    const inner = new CountingWordList(['hola', 'adios']);
+    const wl = new CachedWordList(inner);
+
+    await wl.getWords();
+    await wl.getWords();
+    await wl.has('hola');
+
+    expect(inner.getWordsCalls).toBe(1);
+  });
+
+  it('has uses the cache and matches case insensitively', async () => {
+    const inner = new CountingWordList(['hola']);
+    const wl = new CachedWordList(inner);
+
+    expect(await wl.has('HOLA')).toBe(true);
+    expect(await wl.has('nope')).toBe(false);
+    expect(inner.getWordsCalls).toBe(1);
+  });
+
+  it('invalidates the cache after a successful add', async () => {
+    const inner = new CountingWordList(['hola']);
+    const wl = new CachedWordList(inner);
+
+    expect(await wl.getWords()).toEqual(['hola']);
+    expect(await wl.addWord('adios')).toBe(true);
+    expect(await wl.getWords()).toContain('adios');
+    expect(inner.getWordsCalls).toBe(2); // once before add, once after invalidation
+  });
+
+  it('does not invalidate the cache when the word already exists', async () => {
+    const inner = new CountingWordList(['hola']);
+    const wl = new CachedWordList(inner);
+
+    await wl.getWords();
+    expect(await wl.addWord('HOLA')).toBe(false);
+    await wl.getWords();
+
+    expect(inner.getWordsCalls).toBe(1);
+  });
+
+  it('does not cache a failed read (retries on the next call)', async () => {
+    let calls = 0;
+    const flaky: WordList = {
+      async getWords() {
+        calls++;
+        if (calls === 1) {
+          throw new Error('boom');
+        }
+        return ['hola'];
+      },
+      async has() {
+        return false;
+      },
+      async addWord() {
+        return true;
+      },
+    };
+    const wl = new CachedWordList(flaky);
+
+    await expect(wl.getWords()).rejects.toThrow('boom');
+    expect(await wl.getWords()).toEqual(['hola']);
+    expect(calls).toBe(2);
   });
 });
